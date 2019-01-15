@@ -1,0 +1,314 @@
+https://hackernoon.com/why-is-python-so-slow-e5074b6fe55b
+Why is Python so slow?
+为什么Python这么慢？
+
+Python is booming in popularity. It is used in DevOps, Data Science, Web Development and Security.
+Python现在非常地流行。在DevOps，数据科学，网站开发和安全领域都能见其身影。
+
+It does not, however, win any medals for speed.
+然而，在速度方面，却落在了后面。
+
+How does Java compare in terms of speed to C or C++ or C# or Python? 
+The answer depends greatly on the type of application you’re running. 
+No benchmark is perfect, but The Computer Language Benchmarks Game is [a good starting point].
+Java在速度方面跟C，C++，C#或Python比怎么样？
+答案很大程度上取决于你运行的程序类型。
+没有哪个跑分评测是完美的，不过你可以在参考一下[程序语言评测网]。
+
+I’ve been referring to the Computer Language Benchmarks Game for over a decade; 
+compared with other languages like Java, C#, Go, JavaScript, C++, Python is one of the slowest. 
+This includes JIT (C#, Java) and AOT (C, C++) compilers, as well as interpreted languages like JavaScript.
+我在程序语言评测网上逛了十几年；
+跟其它诸如Java，C#， JavaScript， C++等语言相比，Python算是最慢的，
+不管是运行时编译(C#,Java)还是运行前编译(C,C++)，亦或是嵌入式语言譬如JavaScript结论都一样。
+
+NB: When I say “Python”, I’m talking about the reference implementation of the language, CPython. 
+I will refer to other runtimes in this article.
+注意，这里说的“Python”，指的是标准的CPython，在文章的其他部分我会涉及Python的其他实现。
+
+I want to answer this question: 
+When Python completes a comparable application 2–10x slower than another language, 
+why is it slow and can’t we make it faster?
+我先回答一下这个问题：
+为什么Python比其它评测程序慢2到10倍，可以快一点吗？
+
+Here are the top theories:
+“It’s the GIL (Global Interpreter Lock)”
+“It’s because its interpreted and not compiled”
+“It’s because its a dynamically typed language”
+Which one of these reasons has the biggest impact on performance?
+这有几个结论：
+"因为有全局解释器锁(GIL)"
+"因为是解释执行不是编译执行"
+"因为是它是动态类型语言"
+哪个是最影响性能的呢？
+
+“It’s the GIL”
+Modern computers come with CPU’s that have multiple cores, and sometimes multiple processors. 
+In order to utilise all this extra processing power, the Operating System defines a low-level structure called a thread, 
+where a process (e.g. Chrome Browser) can spawn multiple threads and have instructions for the system inside. 
+That way if one process is particularly CPU-intensive, 
+that load can be shared across the cores and this effectively makes most applications complete tasks faster.
+"是全局解释器锁"
+现在的电脑都是多核或多处理器的。
+为了利用更多的计算性能，操作系统定义了一个底层的结构叫线程。
+一个进程(比如Chrome浏览器)可以生成很多带有指令的线程。
+如果是一个CPU密集型的进程，
+那负载就能被有效的分散在多核上使程序运行的更快。
+
+My Chrome Browser, as I’m writing this article, has 44 threads open. 
+Keep in mind that the structure and API of threading are different between POSIX-based (e.g. Mac OS and Linux) and Windows OS. 
+The operating system also handles the scheduling of threads.
+当我写这篇文章的时候，我的Chrome浏览器跑着44个线程。
+操作系统会处理线程的调度。
+需要注意的是线程的结构和接口在POSIX系统和Window系统上是不一样的。
+
+IF you haven’t done multi-threaded programming before, a concept you’ll need to quickly become familiar with locks. 
+Unlike a single-threaded process, you need to ensure that when changing variables in memory, 
+multiple threads don’t try and access/change the same memory address at the same time.
+如果之前你没有涉及过多线程编程，你要记住一个锁的概念。
+跟单线程不一样，你需要确保在改变一个内存变量时没有其它的线程也在访问或修改这个变量地址。
+
+When CPython creates variables, 
+it allocates the memory and then counts how many references to that variable exist, this is a concept known as reference counting. 
+If the number of references is 0, then it frees that piece of memory from the system. 
+This is why creating a “temporary” variable within say, the scope of a for loop, doesn’t blow up the memory consumption of your application.
+当CPython创建变量时，
+会分配内存和计算它被引用了几次，这就是我们所说的引用计数。
+如果引用计数为0，那变量内存就会被系统回收。
+所以当你在一个for循环里不停的创建一个“临时变量"时不会耗光内存。
+
+The challenge then becomes when variables are shared within multiple threads, how CPython locks the reference count. 
+There is a “global interpreter lock” that carefully controls thread execution. 
+The interpreter can only execute one operation at a time, regardless of how many threads it has.
+那么难点就变成CPython怎样给多线程下的变量引用计数加锁。
+全局解释器锁会仔细的控制线程的执行，
+不管有几个线程在等, 解释器一次只能跑一个操作。
+
+What does this mean to the performance of Python application?
+If you have a single-threaded, single interpreter application. 
+It will make no difference to the speed. Removing the GIL would have no impact on the performance of your code.
+这对于Python的性能来说意味着什么？
+对于一个单线程单解释器的应用程序，去掉全局解释器锁对性能没有什么影响。
+
+If you wanted to implement concurrency within a single interpreter (Python process) by using threading, 
+and your threads were IO intensive (e.g. Network IO or Disk IO), you would see the consequences of GIL-contention.
+如果你想通过线程在一个解释器(Python进程)里实现并发,在IO密集型的情况下，结果只会是全局解释器锁在不停得被争抢。
+
+If you have a web-application (e.g. Django) and you’re using WSGI, 
+then each request to your web-app is a separate Python interpreter, so there is only 1 lock per request. 
+Because the Python interpreter is slow to start, some WSGI implementations have a “Daemon Mode” which keep Python process(es) on the go for you.
+如果是一个用WSGI的网页应用(比如Django),
+每个请求会被分散到不同的解释器下，所以每个请求会有一个锁。
+因为Python解释器启动很慢，所以一些WSGI的实现会有个”后台模式“可以让启动好的Python解释器随时就位。
+
+What about other Python runtimes?
+PyPy has a GIL and it is typically >3x faster than CPython.
+Jython does not have a GIL because a Python thread in Jython is represented by a Java thread and benefits from the JVM memory-management system.
+其它的Python运行时的实现是怎样的呢？
+PyPy有全局解释器锁,速度大概是CPython的3倍以上。
+Jython没有全局解释器锁，因为它跑在Java线程里面，依托于JVM的内存管理系统。
+
+How does JavaScript do this?
+Well, firstly all Javascript engines use mark-and-sweep Garbage Collection. 
+As stated, the primary need for the GIL is CPython’s memory-management algorithm.
+JavaScript是怎么做的？
+所有的JavaScript引擎都使用标记-删除的内存回收机制。
+如上所述, 最需要使用全局解释器锁的是Python的内存管理算法。
+
+JavaScript does not have a GIL, but it’s also single-threaded so it doesn’t require one. 
+JavaScript’s event-loop and Promise/Callback pattern are how asynchronous-programming is achieved in place of concurrency. 
+Python has a similar thing with the asyncio event-loop.
+JavaScript没有全局解释器锁, 因为它都是单线程的所以不需要。
+JavaScript使用事件循环和Promise/Callback机制来取代并发实现异步。
+Python也有类似的异步事件循环机制。
+
+“It’s because its an interpreted language”
+I hear this a lot and I find it a gross-simplification of the way CPython actually works. 
+If at a terminal you wrote python myscript.py then CPython would start a long sequence of reading, 
+lexing, parsing, compiling, interpreting and executing that code.
+"因为它是解释型语言"
+我经常听到这个说法，其实这是一种对CPython的过渡简化。
+当你在终端写一个myscript.py的Python脚本时，CPython会经历一连串的读取，分析，解析，编译，翻译和执行的过程。
+
+If you’re interested in how that process works, I’ve written about it before:
+[Modifying the Python language in 6 minutes]
+如果你对这个解析过程有兴趣，这里有一篇我之前写的文章：
+6分钟内改写Python语言
+
+An important point in that process is the creation of a .pyc file, 
+at the compiler stage, the bytecode sequence is written to a file inside __pycache__/ on Python 3 or in the same directory in Python 2. 
+This doesn’t just apply to your script, but all of the code you imported, including 3rd party modules.
+有一个要点是生成pyc文件的过程，
+在编译期，字节码会被写入到__pycache__/目录内的同名文件下。
+不只是你写的代码，所有你import的代码也同样会这样，包括第三方库。
+
+So most of the time (unless you write code which you only ever run once?), 
+Python is interpreting bytecode and executing it locally. Compare that with Java and C#.NET:
+所以大部分时候(除非你写得代码只执行一次)，
+Python是本地解析和执行的。跟Java和C#.NET比起来：
+
+Java compiles to an “Intermediate Language” and the Java Virtual Machine reads the bytecode and just-in-time compiles it to machine code. 
+The .NET CIL is the same, the .NET Common-Language-Runtime, CLR, uses just-in-time compilation to machine code.
+Java编译成”中间语言“然后由Java虚拟机读取字节码并实时编译为机器码。
+.NET CIL也是一样，.NET的通用语言运行时，CLR，也是用实时编译产生机器码。
+
+So, why is Python so much slower than both Java and C# in the benchmarks if they all use a virtual machine and some sort of Bytecode? 
+Firstly, .NET and Java are JIT-Compiled.
+那同样使用虚拟机和字节码的情形下，为什么Python慢这么多？
+首先，.NET和Java是实时编译。
+
+JIT or Just-in-time compilation requires an intermediate language to allow the code to be split into chunks (or frames). 
+Ahead of time (AOT) compilers are designed to ensure that the CPU can understand every line in the code before any interaction takes place.
+运行时编译要求中介语言允许被分为不同的块(或帧)。
+而运行前编译的编译器被设计成在运行之前确保CPU可以理解每一行代码。
+
+The JIT itself does not make the execution any faster, because it is still executing the same bytecode sequences. 
+However, JIT enables optimizations to be made at runtime. 
+A good JIT optimizer will see which parts of the application are being executed a lot, call these “hot spots”. 
+It will then make optimizations to those bits of code, by replacing them with more efficient versions.
+运行时编译并没有让执行更快，因为它同样需要执行相同的字节码系列。
+但是, 运行时编译可以在运行时实现优化。
+一个良好的运行时编译优化器会记录程序的哪些地方被多次执行，这叫”热点"。
+然后优化这些热点代码为更高效的版本。
+
+This means that when your application does the same thing again and again, it can be significantly faster. 
+Also, keep in mind that Java and C# are strongly-typed languages so the optimiser can make many more assumptions about the code.
+这意味着当你不停的执行应用程序时，它会明显的被优化的更快。
+同时，Java和C#也是强类型的语言，所以优化器可以针对代码做更多的假设优化。
+
+PyPy has a JIT and as mentioned in the previous section, is significantly faster than CPython. 
+This performance benchmark article goes into more detail — [Which is the fastest version of Python?]
+前面提到过PyPy也有一个运行时编译器可以使它跑得比CPython更快。
+跟多性能对比详情可以参考这篇文章 - [最快的Python版本是哪个？]
+
+So why doesn’t CPython use a JIT?
+There are downsides to JITs: one of those is startup time. 
+CPython startup time is already comparatively slow, PyPy is 2–3x slower to start than CPython. 
+The Java Virtual Machine is notoriously slow to boot. The .NET CLR gets around this by starting at system-startup, 
+but the developers of the CLR also develop the Operating System on which the CLR runs.
+那为什么CPython不使用运行时编译呢？
+运行时编译有几个弱点：一是启动时间。
+CPython的启动时间已经比较慢的了，PyPy的启动时间比CPython更是慢了2到3倍。
+Java的虚拟机也是众所周知的启动慢。
+.NET CLR随系统启动来绕过这一点，因为这个系统的开发者和CLR是同一批人。
+
+If you have a single Python process running for a long time, 
+with code that can be optimized because it contains “hot spots”, then a JIT makes a lot of sense.
+如果一个单一的Python进程运行很长一段时间，
+并且里面有热点代码可以被优化，那么运行时编译就能派上用场。
+
+However, CPython is a general-purpose implementation. 
+So if you were developing command-line applications using Python, 
+having to wait for a JIT to start every time the CLI was called would be horribly slow.
+但CPython是一个更通用的设计。
+避免假如你用python开发了一个命令行程序，
+每次运行前都得煎熬的等待JIT慢的出奇启动速度。
+
+CPython has to try and serve as many use cases as possible. 
+There was the possibility of plugging a JIT into CPython but this project has largely stalled.
+CPython得服务于更多的使用情形。
+曾经有一个试图在CPython内植入JIT的项目也流产了。
+
+If you want the benefits of a JIT and you have a workload that suits it, use PyPy.
+如果你想得到JIT的好处且恰好有一个适用的情形，那就用PyPy吧.
+
+“It’s because its a dynamically typed language”
+In a “Statically-Typed” language, you have to specify the type of a variable when it is declared. 
+Those would include C, C++, Java, C#, Go.
+"因为是它是动态类型语言"
+在静态语言里，你必须在声明一个变量前指定它的类型。
+比如C，C++， Java，C#， Go。
+
+In a dynamically-typed language, there are still the concept of types, but the type of a variable is dynamic.
+在动态语言里，依然有类型的概念，但是此类型是动态的。
+
+a = 1
+a = "foo"
+
+In this toy-example, Python creates a second variable with the same name and a type of str and 
+deallocates the memory created for the first instance of a.
+在这个例子里，Python创建了第二个使用相同名字但是类型为str的变量取代了之前内存中同名的变量。
+
+Statically-typed languages aren’t designed as such to make your life hard, 
+they are designed that way because of the way the CPU operates. 
+If everything eventually needs to equate to a simple binary operation, 
+you have to convert objects and types down to a low-level data structure.
+静态语言这么设计并不是为了让你难受，
+而是为了更利于CPU的操作。
+如果最终一切都得化为简单的二进制操作码，
+那你不得不转换实体和类型为低层级的数据结构。
+
+Python does this for you, you just never see it, nor do you need to care.
+Python替你做了，只是你看不到，或者说你不需要关注。
+
+Not having to declare the type isn’t what makes Python slow, 
+the design of the Python language enables you to make almost anything dynamic. 
+You can replace the methods on objects at runtime, you can monkey-patch low-level system calls to a value declared at runtime. 
+Almost anything is possible.
+并不是不用声明变量类型使得Python很慢。
+Python的设计使得几乎任何东西都是动态的。
+你可以在运行时把方法替换为变量，你也可以给系统调用打上猴子补丁使它变成一个运行时声明的值。
+一切皆有可能。
+
+It’s this design that makes it incredibly hard to optimise Python.
+这种设计让Python变的非常难优化。
+
+To illustrate my point, I’m going to use a syscall tracing tool that works in Mac OS called Dtrace. 
+CPython distributions do not come with DTrace builtin, so you have to recompile CPython. I’m using 3.6.6 for my demo
+为了证明这一点，我来用一个在MacOS下的跟踪系统调用工具DTrace。
+CPython的发布版没有带DTrace, 得重新编译CPython。 我在demo中使用的是3.6.6。
+
+wget https://github.com/python/cpython/archive/v3.6.6.zip
+unzip v3.6.6.zip
+cd v3.6.6
+./configure --with-dtrace
+make
+
+Now python.exe will have Dtrace tracers throughout the code. 
+Paul Ross wrote an awesome Lightning Talk on Dtrace. 
+You can download DTrace starter files for Python to measure function calls, 
+execution time, CPU time, syscalls, all sorts of fun.
+现在python.exe就能使用DTrace来跟踪代码了。
+Paul Ross写了一个很不错的DTrace可视化工具。
+你可以下载来查看函数调用，
+执行时间, CPU时间，系统调用，还有各种各样好玩的东西。
+
+e.g.
+比如
+sudo dtrace -s toolkit/<tracer>.d -c ‘../cpython/python.exe script.py’
+
+The py_callflow tracer shows all the function calls in your application
+py_callflow跟踪器显示了你程序中的所有函数调用.
+
+So, does Python’s dynamic typing make it slow?
+所以，Python的动态类型使它变慢了吗？
+
+* Comparing and converting types is costly, every time a variable is read, written to or referenced the type is checked
+对比和转换类型消耗很大，每次变量被读取，写入和引用时都会触发。
+
+* It is hard to optimise a language that is so dynamic. 
+  The reason many alternatives to Python are so much faster is that they make compromises to flexibility in the name of performance
+ 如此动态的语言很难被优化。
+ 其它对比Python的语言在性能的名义下对灵活性做出了取舍。
+
+* Looking at Cython, 
+  which combines C-Static Types and Python to optimise code where the types are known can provide an 84x performance improvement.
+  看看Cython，它引入了C静态类型来优化Python，性能可以高出84倍。
+
+Conclusion
+Python is primarily slow because of its dynamic nature and versatility. 
+It can be used as a tool for all sorts of problems, where more optimised and faster alternatives are probably available.
+结论
+Python的慢是因为它的动态性和通用性。
+它可以被用来解决各种问题的工具，在这些问题中可能有更优化和更快的替代方案。
+
+There are, however, ways of optimising your Python applications by leveraging async, 
+understanding the profiling tools, and consider using multiple-interpreters.
+或者也可以使用异步来优化你的python程序，在用好性能分析工具下，也可考虑使用多解释器。
+
+For applications where startup time is unimportant and the code would benefit a JIT, consider PyPy.
+在不考虑启动速度且能被JIT加速的情况下，可考虑用PyPy。
+
+For parts of your code where performance is critical and you have more statically-typed variables, consider using Cython.
+在部分代码有严重性能问题且类型多为静态不变的情况下，可考虑用Cython。
